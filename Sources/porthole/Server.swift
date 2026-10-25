@@ -14,19 +14,17 @@ enum Log {
 final class Server {
     let port: Int
     let token: String
-    let allowAny: Bool
 
-    init(port: Int, token: String, allowAny: Bool) {
+    init(port: Int, token: String) {
         self.port = port
         self.token = token
-        self.allowAny = allowAny
     }
 
     func run() throws -> Never {
         signal(SIGPIPE, SIG_IGN)
         Paths.ensure(Paths.workDir)
         let listener = try Listener(port: port)
-        Log.info("porthole \(portholeVersion) serving on :\(port)\(allowAny ? " (any peer)" : " (loopback and tailnet peers)")")
+        Log.info("porthole \(portholeVersion) serving on :\(port) (loopback and tailnet peers)")
         // Accept on a background thread and keep the main run loop free for the
         // system frameworks (Core Audio, TCC) that call back on it.
         let acceptLoop: () -> Never = { [self] in
@@ -45,9 +43,9 @@ final class Server {
     }
 
     private func handle(_ sock: Socket) {
-        guard allowAny || PeerPolicy.isTrusted(sock.peer) else {
-            Log.info("refused \(sock.peer): not loopback or tailnet")
-            try? sock.send(json: ["ok": false, "error": "peer \(sock.peer) is not on the tailnet; start the server with --any to allow it"])
+        guard PeerPolicy.isTrusted(sock) else {
+            Log.info("refused \(sock.peer) on \(sock.local): not loopback or tailnet")
+            try? sock.send(json: ["ok": false, "error": "porthole only accepts loopback and tailnet connections; \(sock.peer) reached \(sock.local)"])
             return
         }
         do {
