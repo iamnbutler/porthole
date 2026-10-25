@@ -109,6 +109,20 @@ final class PortholeTests: XCTestCase {
         XCTAssertEqual(try String(contentsOfFile: dir + "/back/a.txt", encoding: .utf8), "a")
     }
 
+    func testRunStagesRunsCopiesBackAndCleansUp() throws {
+        let dir = NSTemporaryDirectory() + "porthole-test-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try "in".write(toFile: dir + "/input.txt", atomically: true, encoding: .utf8)
+        let r = try Remote.run(
+            host, "pwd > where; cat in.txt > out/result.txt 2>/dev/null || { mkdir out; cat in.txt > out/result.txt; }; exit 3",
+            puts: [dir + "/input.txt=in.txt"], gets: ["out=\(dir)/back", "where=\(dir)/where"])
+        XCTAssertEqual(r.code, 3)
+        XCTAssertEqual(try String(contentsOfFile: dir + "/back/result.txt", encoding: .utf8), "in")
+        let ran = try String(contentsOfFile: dir + "/where", encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(ran.contains("/porthole/runs/"), ran)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: ran), "run folder should be removed")
+    }
+
     func testPullMissingFileFails() {
         XCTAssertThrowsError(try Remote.pull(host, remote: "/nonexistent/\(UUID().uuidString)", local: "/tmp/x"))
     }

@@ -87,6 +87,44 @@ enum Remote {
         return reply
     }
 
+    /// Runs `cmd` on the host in a fresh folder, ~/porthole/runs/<id>, so a session can build
+    /// here and run something windowed there. Each `put` (`path` or `path=name`) is copied into
+    /// the folder first; after the command, each `get` (`path` in the folder, or `path=local`)
+    /// is copied back whether or not it succeeded. The folder is removed unless `keep`.
+    static func run(
+        _ host: Host, _ cmd: String, puts: [String], gets: [String], timeout: Double = 0, keep: Bool = false,
+        onOut: ((Data) -> Void)? = nil, onErr: ((Data) -> Void)? = nil
+    ) throws -> ExecResult {
+        func split(_ spec: String) -> (String, String?) {
+            guard let i = spec.firstIndex(of: "=") else { return (spec, nil) }
+            return (String(spec[..<i]), String(spec[spec.index(after: i)...]))
+        }
+        let dir = "porthole/runs/\(Int(Date().timeIntervalSince1970))-\(getpid())"
+        for spec in puts {
+            let (local, name) = split(spec)
+            let base = name ?? ((local as NSString).standardizingPath as NSString).lastPathComponent
+            _ = try push(host, local: Paths.expand(local), remote: "\(dir)/\(base)")
+        }
+        if puts.isEmpty { _ = try exec(host, "mkdir -p ~/\(dir)") }
+
+        let r = try exec(host, cmd, cwd: "~/\(dir)", timeout: timeout, onOut: onOut, onErr: onErr)
+
+        for spec in gets {
+            let (path, local) = split(spec)
+            do {
+                _ = try pull(host, remote: "\(dir)/\(path)", local: local ?? (path as NSString).lastPathComponent)
+            } catch {
+                onErr?(Data("porthole: could not copy back \(path): \(error)\n".utf8))
+            }
+        }
+        if keep {
+            onErr?(Data("porthole: kept ~/\(dir) on \(host.name)\n".utf8))
+        } else {
+            _ = try? exec(host, "rm -rf ~/\(dir)")
+        }
+        return r
+    }
+
     /// Copies a local file or directory to the host. Directories travel as tar.
     static func push(_ host: Host, local: String, remote: String) throws -> String {
         var isDir: ObjCBool = false

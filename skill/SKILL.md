@@ -13,6 +13,20 @@ Porthole lets you drive a paired Mac as if you were sitting at it: run commands,
 - Otherwise use the `porthole` CLI from Bash. `porthole hosts` lists paired hosts; `-H <host>` picks one (it defaults to the only host).
 - `remote_info` / `porthole info` says whether Desktop Tools is running there and whether Screen Recording is granted.
 
+## Offload a windowed test
+
+When a test opens windows (UI fuzzing, conformance runs, screenshot captures) and the user is working on this Mac, run it on the remote instead, so nothing pops up here. Build here, then hand the built pieces to `porthole run`, which stages them in a fresh folder there, runs the command, copies outputs back, and removes the folder:
+
+```sh
+porthole run --put build/App --put tools/driver.ts --get out=build/report \
+  -- 'bun driver.ts --bin ./App --out out'
+```
+
+- `--put path[=name]` copies a file or directory into the run folder; `--get path[=local]` copies one back after the command, even if it failed. Both repeat.
+- It exits with the command's exit code, and output streams as it runs. `--keep` leaves the folder (`~/porthole/runs/<id>`) for a look.
+- Binaries built here usually run there even when the remote's macOS is older than their minimum. If one doesn't, or the remote lacks a tool the command needs (bun, a toolchain), install it there with `porthole exec`; that's expected, not a blocker.
+- Cairn, for example, has `make conformance` build the app and generator, then runs `driver.ts` with `--bin`, `--gen` and `--claims`. Run those build steps here, and put those three files and the driver on the remote.
+
 ## The loop
 
 1. **Ship the code.** `remote_push` a directory (it skips `.git`, `node_modules`, `.build`, `target`, `DerivedData`), or `remote_exec` a `git clone`/`git pull` there. Remote paths are relative to its home; use `~/porthole/work/<project>` unless told otherwise.
@@ -24,7 +38,7 @@ Porthole lets you drive a paired Mac as if you were sitting at it: run commands,
 7. **Bring back evidence.** `remote_pull` logs, screenshots or recordings that the user should see.
 8. **Clean up.** Quit what you launched (`desktop_quit`, or `remote_exec "pkill -x AppName"`).
 
-CLI equivalents: `porthole exec -- cmd`, `porthole exec --detach -- cmd`, `porthole push <local> <remote>`, `porthole pull <remote> <local>`, `porthole shot out.png`, `porthole audio --seconds 4 --app Music`.
+CLI equivalents: `porthole run --put … --get … -- cmd`, `porthole exec -- cmd`, `porthole exec --detach -- cmd`, `porthole push <local> <remote>`, `porthole pull <remote> <local>`, `porthole shot out.png`, `porthole audio --seconds 4 --app Music`.
 
 ## Rules
 

@@ -20,6 +20,8 @@ On the Mac the agent runs on:
 
   porthole info  [-H host]
   porthole exec  [-H host] [--cwd dir] [--timeout s] [--detach] -- command…
+  porthole run   [-H host] [--put path[=name]]… [--get path[=local]]… [--timeout s] [--keep] -- command…
+                                        stage files in a fresh folder on the host, run there, copy outputs back
   porthole push  [-H host] <local> <remote>
   porthole pull  [-H host] <remote> <local>
   porthole shot  [-H host] [--display n] [out.png]
@@ -36,6 +38,8 @@ func fail(_ msg: String) -> Never {
 struct Args {
     var positional: [String] = []
     var flags: [String: String] = [:]
+    /// Every value of a valued flag, for flags that repeat (--put, --get).
+    var lists: [String: [String]] = [:]
     var rest: [String] = []
 
     init(_ argv: ArraySlice<String>, valued: Set<String>) {
@@ -47,6 +51,7 @@ struct Args {
                 if valued.contains(key) {
                     guard let v = it.next() else { fail("\(a) needs a value") }
                     flags[key] = v
+                    lists[key, default: []].append(v)
                 } else {
                     flags[key] = "true"
                 }
@@ -65,7 +70,7 @@ func run() throws {
     let argv = CommandLine.arguments
     guard argv.count > 1 else { print(usage); return }
     let cmd = argv[1]
-    let a = Args(argv.dropFirst(2), valued: ["port", "H", "host", "cwd", "timeout", "seconds", "app", "pull", "display", "mcp-scope", "trigger"])
+    let a = Args(argv.dropFirst(2), valued: ["port", "H", "host", "cwd", "timeout", "put", "get", "seconds", "app", "pull", "display", "mcp-scope", "trigger"])
 
     switch cmd {
     case "serve":
@@ -128,6 +133,20 @@ func run() throws {
         let r = try Remote.exec(
             host, command, cwd: a.flags["cwd"], timeout: Double(a.flags["timeout"] ?? "") ?? 0,
             forwardStdin: isatty(0) == 0,
+            onOut: { FileHandle.standardOutput.write($0) },
+            onErr: { FileHandle.standardError.write($0) }
+        )
+        if r.timedOut { FileHandle.standardError.write(Data("porthole: timed out\n".utf8)) }
+        exit(Int32(truncatingIfNeeded: r.code))
+
+    case "run":
+        let host = try a.host()
+        let command = (a.rest.isEmpty ? a.positional : a.rest).joined(separator: " ")
+        guard !command.isEmpty else { fail("usage: porthole run [-H host] [--put path[=name]]… [--get path[=local]]… -- command") }
+        signal(SIGPIPE, SIG_IGN)
+        let r = try Remote.run(
+            host, command, puts: a.lists["put"] ?? [], gets: a.lists["get"] ?? [],
+            timeout: Double(a.flags["timeout"] ?? "") ?? 0, keep: a.flags["keep"] != nil,
             onOut: { FileHandle.standardOutput.write($0) },
             onErr: { FileHandle.standardError.write($0) }
         )
