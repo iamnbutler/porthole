@@ -34,11 +34,11 @@ porthole run --put build/App --put tools/driver.ts --get out=build/report \
 3. **Launch.** Start GUI apps and servers with `detach: true` (or `open -a`, `open path/To.app`) so the call returns; read the log path it gives you with `remote_exec "tail -50 <log>"`.
 4. **Look.** `remote_screenshot` for the whole screen. For anything you'll interact with, `desktop_windows` / `desktop_apps` then `desktop_inspect`, which gives a screenshot plus element IDs.
 5. **Act.** `desktop_click`, `desktop_type`, `desktop_key`, etc. with the snapshot from `desktop_inspect`. Inspect again after every action; snapshots are single-use.
-6. **Listen.** To check sound, call `remote_audio` (e.g. `seconds: 4`, optionally `app`) and trigger the sound in a parallel call, or record while it plays. Read `silent`, `peak_dbfs`, `sound_from`/`sound_to` and the `levels_dbfs` timeline. `pull_to` copies the WAV here.
+6. **Listen.** To check sound, call `remote_audio` with the command that makes the sound as `trigger` (e.g. `seconds: 4, trigger: "open -a MyApp"`); it runs the moment recording starts, so nothing is clipped. Without `trigger` it records whatever plays. `app` limits it to one running process. Read `silent`, `peak_dbfs`, `sound_from`/`sound_to` and the `levels_dbfs` timeline. `pull_to` copies the WAV here.
 7. **Bring back evidence.** `remote_pull` logs, screenshots or recordings that the user should see.
 8. **Clean up.** Quit what you launched (`desktop_quit`, or `remote_exec "pkill -x AppName"`).
 
-CLI equivalents: `porthole run --put … --get … -- cmd`, `porthole exec -- cmd`, `porthole exec --detach -- cmd`, `porthole push <local> <remote>`, `porthole pull <remote> <local>`, `porthole shot out.png`, `porthole audio --seconds 4 --app Music`.
+CLI equivalents: `porthole run --put … --get … -- cmd`, `porthole exec -- cmd`, `porthole exec --detach -- cmd`, `porthole push <local> <remote>`, `porthole pull <remote> <local>`, `porthole shot out.png`, `porthole audio --seconds 4 --trigger 'afplay x.wav'`.
 
 ## Rules
 
