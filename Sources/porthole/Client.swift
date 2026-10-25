@@ -118,8 +118,16 @@ enum Remote {
         return done.str("path") ?? remote
     }
 
+    /// A local path made absolute against the working directory, so a bare file name
+    /// has a parent to create.
+    static func localPath(_ p: String) -> String {
+        let e = Paths.expand(p)
+        return e.hasPrefix("/") ? e : (FileManager.default.currentDirectoryPath as NSString).appendingPathComponent(e)
+    }
+
     /// Copies a remote file or directory here.
     static func pull(_ host: Host, remote: String, local: String) throws -> String {
+        let local = localPath(local)
         let (sock, header) = try dial(host, ["op": "get", "path": remote])
         defer { sock.close() }
         let size = header.int("size") ?? 0
@@ -159,6 +167,7 @@ enum Remote {
 
     /// Captures the host's screen to a local PNG.
     static func shot(_ host: Host, to local: String, display: Int? = nil) throws -> String {
+        let local = localPath(local)
         var hello: [String: Any] = ["op": "shot"]
         if let display { hello["display"] = display }
         let (sock, header) = try dial(host, hello)
