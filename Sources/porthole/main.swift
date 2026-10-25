@@ -11,8 +11,9 @@ On the Mac that does the work:
   porthole token                        print this Mac's token
 
 On the Mac the agent runs on:
-  porthole share [--port N] [--mcp-scope user|local|project|none]
+  porthole share [--port N] [--mcp-scope user|local|project|none] [--once]
                                         serve an installer; the other Mac runs `curl …/install | sh` and pairs back
+                                        (--once: exit after the first pairing)
   porthole pair <name> <address[:port]> <token>
   porthole hosts [rm <name>]            list or remove paired hosts
   porthole mcp [host]                   stdio MCP server: desktop-tools on the host plus remote_* tools
@@ -87,7 +88,7 @@ func run() throws {
 
     case "share":
         let scope = a.flags["mcp-scope"] ?? "user"
-        try Share(port: Int(a.flags["port"] ?? "") ?? 7879, mcpScope: scope == "none" ? nil : scope).run()
+        try Share(port: Int(a.flags["port"] ?? "") ?? 7879, mcpScope: scope == "none" ? nil : scope, once: a.flags["once"] != nil).run()
 
     case "pair":
         guard a.positional.count == 3 else { fail("usage: porthole pair <name> <address[:port]> <token>") }

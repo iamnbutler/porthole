@@ -84,11 +84,13 @@ enum Install {
 final class Share {
     let port: Int
     let mcpScope: String?
+    let once: Bool
     private let zip: String
 
-    init(port: Int, mcpScope: String?) throws {
+    init(port: Int, mcpScope: String?, once: Bool = false) throws {
         self.port = port
         self.mcpScope = mcpScope
+        self.once = once
         guard let app = Install.appBundle else { throw NetError("run share from the porthole inside Porthole.app") }
         zip = NSTemporaryDirectory() + "Porthole-\(getpid()).zip"
         try? FileManager.default.removeItem(atPath: zip)
@@ -159,6 +161,7 @@ final class Share {
                 if let scope = mcpScope { msg += "\n" + Share.registerMCP(name: name, scope: scope) }
                 print(msg)
                 respond(sock, 200, msg + "\n")
+                if once { sock.close(); exit(0) }
             } catch {
                 respond(sock, 500, "\(error)\n")
             }
