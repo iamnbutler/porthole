@@ -22,8 +22,9 @@ final class AudioRecorder {
 
     private init(path: String) { self.path = path }
 
-    static func record(seconds: Double, app: String?, to path: String) throws -> [String: Any] {
-        try AudioRecorder(path: path).run(seconds: seconds, app: app)
+    /// `onStart` runs once audio is flowing, so a sound it triggers is heard from its first moment.
+    static func record(seconds: Double, app: String?, to path: String, onStart: (() -> Void)? = nil) throws -> [String: Any] {
+        try AudioRecorder(path: path).run(seconds: seconds, app: app, onStart: onStart)
     }
 
     /// Core Audio delivers notifications on the main run loop by default, which the
@@ -34,7 +35,7 @@ final class AudioRecorder {
         AudioObjectSetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, UInt32(MemoryLayout<CFRunLoop?>.size), &loop)
     }()
 
-    private func run(seconds: Double, app: String?) throws -> [String: Any] {
+    private func run(seconds: Double, app: String?, onStart: (() -> Void)?) throws -> [String: Any] {
         AudioRecorder.halThread
         var matched: [String] = []
         let desc: CATapDescription
@@ -84,12 +85,13 @@ final class AudioRecorder {
         // The device takes most of a second to deliver its first buffer; start the
         // clock then, so a sound triggered right after the call is still heard.
         let started = Date()
-        while Date().timeIntervalSince(started) < 3 {
+        while Date().timeIntervalSince(started) < 10 {
             lock.lock(); let n = callbacks; lock.unlock()
             if n > 0 { break }
             if Thread.isMainThread { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) } else { usleep(10_000) }
         }
         let startupDelay = Date().timeIntervalSince(started)
+        onStart?()
         if Thread.isMainThread {
             RunLoop.current.run(until: Date().addingTimeInterval(seconds))
         } else {

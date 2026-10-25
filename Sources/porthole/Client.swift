@@ -148,9 +148,10 @@ enum Remote {
         return local
     }
 
-    static func audio(_ host: Host, seconds: Double, app: String?) throws -> [String: Any] {
+    static func audio(_ host: Host, seconds: Double, app: String?, trigger: String? = nil) throws -> [String: Any] {
         var hello: [String: Any] = ["op": "audio", "seconds": seconds]
         if let app { hello["app"] = app }
+        if let trigger { hello["trigger"] = trigger }
         let (sock, reply) = try dial(host, hello, timeout: 10)
         sock.close()
         return reply.obj("audio") ?? [:]

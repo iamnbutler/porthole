@@ -23,7 +23,7 @@ On the Mac the agent runs on:
   porthole push  [-H host] <local> <remote>
   porthole pull  [-H host] <remote> <local>
   porthole shot  [-H host] [--display n] [out.png]
-  porthole audio [-H host] [--seconds n] [--app name] [--pull path]
+  porthole audio [-H host] [--seconds n] [--app name] [--trigger cmd] [--pull path]
 
 -H defaults to $PORTHOLE_HOST, or the only paired host.
 """
@@ -65,7 +65,7 @@ func run() throws {
     let argv = CommandLine.arguments
     guard argv.count > 1 else { print(usage); return }
     let cmd = argv[1]
-    let a = Args(argv.dropFirst(2), valued: ["port", "H", "host", "cwd", "timeout", "seconds", "app", "pull", "display", "mcp-scope"])
+    let a = Args(argv.dropFirst(2), valued: ["port", "H", "host", "cwd", "timeout", "seconds", "app", "pull", "display", "mcp-scope", "trigger"])
 
     switch cmd {
     case "serve":
@@ -148,7 +148,7 @@ func run() throws {
 
     case "audio":
         let host = try a.host()
-        var summary = try Remote.audio(host, seconds: Double(a.flags["seconds"] ?? "") ?? 5, app: a.flags["app"])
+        var summary = try Remote.audio(host, seconds: Double(a.flags["seconds"] ?? "") ?? 5, app: a.flags["app"], trigger: a.flags["trigger"])
         if let dest = a.flags["pull"], let path = summary.str("path") {
             summary["pulled_to"] = try Remote.pull(host, remote: path, local: dest)
         }

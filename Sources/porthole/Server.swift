@@ -284,7 +284,21 @@ final class Server {
         let dir = Paths.workDir.appendingPathComponent("audio")
         Paths.ensure(dir)
         let out = hello.str("path").map(absolute) ?? dir.appendingPathComponent("\(Int(Date().timeIntervalSince1970)).wav").path
-        let result = try AudioRecorder.record(seconds: seconds, app: hello.str("app"), to: out)
+        var triggered: [String: Any]?
+        let trigger = hello.str("trigger")
+        var result = try AudioRecorder.record(seconds: seconds, app: hello.str("app"), to: out, onStart: trigger.map { cmd in {
+            let logs = Paths.workDir.appendingPathComponent("logs")
+            Paths.ensure(logs)
+            let log = logs.appendingPathComponent("trigger-\(Int(Date().timeIntervalSince1970 * 1000)).log").path
+            do {
+                let child = try Child.spawn(["/bin/zsh", "-lc", cmd], cwd: Paths.home.path, env: commandEnvironment(), stdin: false, stdout: .file(log), stderr: .file(log))
+                Thread.detachNewThread { _ = child.wait() }
+                triggered = ["command": cmd, "pid": Int(child.pid), "log": log]
+            } catch {
+                triggered = ["command": cmd, "error": "\(error)"]
+            }
+        } })
+        if let triggered { result["trigger"] = triggered }
         try sock.send(json: ["ok": true, "audio": result])
     }
 
