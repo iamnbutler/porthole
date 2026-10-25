@@ -224,8 +224,8 @@ enum RemoteTools {
         tool("remote_screenshot", "Capture the remote Mac's whole screen and return it as an image, downscaled to fit 1600 px.", [
             "display": ["type": "integer", "description": "Display number, 1 for the main display. Default main."],
         ], []),
-        tool("remote_audio", "Record the remote Mac's audio output for a few seconds and report whether sound played: peak level, when sound started and stopped, and a level per 0.1 s window in dBFS. To make a sound and hear it, pass the command that makes it as trigger: it runs once recording has begun (startup takes up to ~1.5 s), so nothing is clipped. Without trigger, it records whatever is playing. The WAV stays on the remote Mac; pass pull_to to copy it here.", [
-            "trigger": ["type": "string", "description": "Shell command to run on the remote Mac once recording has started, e.g. `afplay ~/sound.wav` or `open -a MyApp`. Its output goes to a log; the result names it."],
+        tool("remote_audio", "Record the remote Mac's audio output for a few seconds and report whether sound played: peak level, when sound started and stopped, and a level per 0.1 s window in dBFS. To make a sound and hear it, pass the command that makes it as trigger: it runs the moment recording starts, so the timeline lines up with it. Without trigger, it records whatever plays during the window. Times are from the start of recording; windows where nothing played read -90. The WAV stays on the remote Mac; pass pull_to to copy it here.", [
+            "trigger": ["type": "string", "description": "Shell command to run on the remote Mac as recording starts, e.g. `afplay ~/sound.wav` or `open -a MyApp`. Its output goes to a log; the result names it."],
             "seconds": ["type": "number", "description": "How long to record, 0.5 to 300. Default 5."],
             "app": ["type": "string", "description": "Only this process's audio: a bundle ID, app name or executable name. It must already be running and have opened audio. Default: all audio, command-line tools included."],
             "pull_to": ["type": "string", "description": "Copy the recording to this local path."],

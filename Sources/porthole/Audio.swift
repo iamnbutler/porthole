@@ -6,15 +6,19 @@ import Foundation
 /// Records what this Mac plays through a Core Audio process tap and summarizes it
 /// so an agent can tell whether, when and how loud something played. Unlike
 /// ScreenCaptureKit, a tap hears every process, command-line tools included.
+///
+/// The tap only delivers buffers while something is playing, so the timeline is
+/// laid out by wall clock: each buffer lands in the window it arrived in, windows
+/// with no buffers count as silence, and the WAV is padded with silence to match.
 final class AudioRecorder {
     private var file: AVAudioFile?
     private let path: String
     private var format: AVAudioFormat?
-    private var windowSamples = 0
-    private var windowSumSquares: Double = 0
+    private var start = Date()
+    private var windows: [Int: (sumSquares: Double, samples: Int)] = [:]
     private var peak: Float = 0
-    private var levels: [Double] = []
-    private var frames: Int64 = 0
+    private var framesWritten: Int64 = 0
+    private var framesHeard: Int64 = 0
     private var writeError: Error?
     private let lock = NSLock()
 
@@ -22,7 +26,7 @@ final class AudioRecorder {
 
     private init(path: String) { self.path = path }
 
-    /// `onStart` runs once audio is flowing, so a sound it triggers is heard from its first moment.
+    /// `onStart` runs as soon as capture has started, so a sound it triggers is heard from its first moment.
     static func record(seconds: Double, app: String?, to path: String, onStart: (() -> Void)? = nil) throws -> [String: Any] {
         try AudioRecorder(path: path).run(seconds: seconds, app: app, onStart: onStart)
     }
@@ -58,6 +62,7 @@ final class AudioRecorder {
         var asbd = try CoreAudioProperty.read(tap, kAudioTapPropertyFormat, AudioStreamBasicDescription())
         guard let fmt = AVAudioFormat(streamDescription: &asbd) else { throw NetError("unsupported tap format") }
         format = fmt
+        file = try AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: fmt.settings, commonFormat: fmt.commonFormat, interleaved: fmt.isInterleaved)
 
         let output = try CoreAudioProperty.read(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyDefaultOutputDevice, AudioObjectID(kAudioObjectUnknown))
         let outputUID = try CoreAudioProperty.readString(output, kAudioDevicePropertyDeviceUID)
@@ -81,98 +86,62 @@ final class AudioRecorder {
         }, "attach to the capture device")
         defer { if let proc { AudioDeviceDestroyIOProcID(device, proc) } }
 
+        lock.lock(); start = Date(); lock.unlock()
         try check(AudioDeviceStart(device, proc), "start capturing")
-        // The device takes most of a second to deliver its first buffer; start the
-        // clock then, so a sound triggered right after the call is still heard.
-        let started = Date()
-        while Date().timeIntervalSince(started) < 10 {
-            lock.lock(); let n = callbacks; lock.unlock()
-            if n > 0 { break }
-            if Thread.isMainThread { RunLoop.current.run(until: Date().addingTimeInterval(0.01)) } else { usleep(10_000) }
-        }
-        let startupDelay = Date().timeIntervalSince(started)
         onStart?()
         if Thread.isMainThread {
-            RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+            RunLoop.current.run(until: start.addingTimeInterval(seconds))
         } else {
-            Thread.sleep(forTimeInterval: seconds)
+            Thread.sleep(until: start.addingTimeInterval(seconds))
         }
-        var diag: [String: Any] = ["tap_format": "\(asbd.mSampleRate) Hz, \(asbd.mChannelsPerFrame) ch, flags \(asbd.mFormatFlags)"]
-        diag["device_running"] = (try? CoreAudioProperty.read(device, kAudioDevicePropertyDeviceIsRunning, UInt32(0))) ?? 99
-        var streamsAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyStreams, mScope: kAudioObjectPropertyScopeInput, mElement: kAudioObjectPropertyElementMain)
-        var size: UInt32 = 0
-        AudioObjectGetPropertyDataSize(device, &streamsAddr, 0, nil, &size)
-        diag["input_streams"] = Int(size) / MemoryLayout<AudioObjectID>.size
-        diag["output_device"] = outputUID
         AudioDeviceStop(device, proc)
-        var summary = summarize(seconds: seconds, matched: matched)
-        summary["startup_seconds"] = round1(startupDelay)
-        lock.lock(); diag["callbacks"] = callbacks; lock.unlock()
-        if frames == 0 { summary["diagnostics"] = diag }
-        return summary
+        return summarize(seconds: seconds, matched: matched)
     }
-
-    private var callbacks = 0
 
     private func receive(_ input: UnsafePointer<AudioBufferList>) {
         lock.lock(); defer { lock.unlock() }
-        callbacks += 1
         // The capture device's input carries the output device's own input streams
         // (a USB mic, say) ahead of the tap, so the tap is the last buffer.
         let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         guard let format, let tapBuffer = buffers.last else { return }
         var single = AudioBufferList(mNumberBuffers: 1, mBuffers: tapBuffer)
-        guard let pcm = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: &single, deallocator: nil) else { return }
-        do {
-            if file == nil {
-                file = try AVAudioFile(forWriting: URL(fileURLWithPath: path), settings: format.settings, commonFormat: format.commonFormat, interleaved: format.isInterleaved)
-            }
-            try file?.write(from: pcm)
-        } catch {
-            writeError = error
-        }
-        frames += Int64(pcm.frameLength)
-        measure(pcm)
+        guard let pcm = AVAudioPCMBuffer(pcmFormat: format, bufferListNoCopy: &single, deallocator: nil), pcm.frameLength > 0 else { return }
+
+        // Place the buffer by arrival time: it ends now, so it began a buffer's length ago.
+        let rate = format.sampleRate
+        let begins = max(0, Date().timeIntervalSince(start) - Double(pcm.frameLength) / rate)
+        padSilence(until: Int64(begins * rate))
+        do { try file?.write(from: pcm) } catch { writeError = error }
+        measure(pcm, from: begins)
+        framesWritten += Int64(pcm.frameLength)
+        framesHeard += Int64(pcm.frameLength)
     }
 
-    private func summarize(seconds: Double, matched: [String]) -> [String: Any] {
-        lock.lock(); defer { lock.unlock() }
-        flushWindow()
-        file = nil
-        let rate = format?.sampleRate ?? 48000
-        let threshold = -50.0
-        let loud = levels.enumerated().filter { $0.element > threshold }
-        var summary: [String: Any] = [
-            "path": path,
-            "seconds": round1(Double(frames) / rate),
-            "requested_seconds": seconds,
-            "peak_dbfs": round1(db(Double(peak))),
-            "silent": loud.isEmpty,
-            "window_seconds": AudioRecorder.window,
-            // One level per window, in dBFS, floored at -90.
-            "levels_dbfs": levels.map { round1(max($0, -90)) },
-        ]
-        if !matched.isEmpty { summary["processes"] = matched }
-        if let first = loud.first, let last = loud.last {
-            summary["sound_from"] = round1(Double(first.offset) * AudioRecorder.window)
-            summary["sound_to"] = round1(Double(last.offset + 1) * AudioRecorder.window)
-            summary["loud_fraction"] = round1(Double(loud.count) / Double(max(levels.count, 1)))
+    /// Writes zeros so the WAV's timeline matches the wall clock across gaps.
+    private func padSilence(until frame: Int64, ignoringJitter: Bool = true) {
+        guard let format, let file else { return }
+        var missing = frame - framesWritten
+        // Mid-recording, ignore jitter shorter than a window.
+        if ignoringJitter, Double(missing) <= format.sampleRate * AudioRecorder.window { return }
+        let chunk = AVAudioFrameCount(4096)
+        guard let zeros = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk) else { return }
+        while missing > 0 {
+            let n = AVAudioFrameCount(min(Int64(chunk), missing))
+            zeros.frameLength = n
+            let list = UnsafeMutableAudioBufferListPointer(zeros.mutableAudioBufferList)
+            for b in list { if let d = b.mData { memset(d, 0, Int(b.mDataByteSize)) } }
+            do { try file.write(from: zeros) } catch { writeError = error; return }
+            framesWritten += Int64(n)
+            missing -= Int64(n)
         }
-        if let writeError { summary["write_error"] = writeError.localizedDescription }
-        if frames == 0 {
-            summary["note"] = "no audio arrived; check that Porthole is allowed under System Settings › Privacy & Security › Screen & System Audio Recording"
-        } else if loud.isEmpty {
-            summary["note"] = "only silence arrived; if something did play, Porthole may lack System Audio Recording permission (a denied tap records silence)"
-        }
-        return summary
     }
 
-    private func measure(_ pcm: AVAudioPCMBuffer) {
+    private func measure(_ pcm: AVAudioPCMBuffer, from begins: Double) {
         guard let channels = pcm.floatChannelData else { return }
         let n = Int(pcm.frameLength)
         let chans = Int(pcm.format.channelCount)
         let stride = pcm.stride
-        let perWindow = Int((format?.sampleRate ?? 48000) * AudioRecorder.window)
+        let rate = pcm.format.sampleRate
         for i in 0..<n {
             var sq: Float = 0
             for c in 0..<chans {
@@ -181,17 +150,47 @@ final class AudioRecorder {
                 sq += v * v
                 peak = max(peak, abs(v))
             }
-            windowSumSquares += Double(sq / Float(max(chans, 1)))
-            windowSamples += 1
-            if windowSamples >= perWindow { flushWindow() }
+            let w = Int((begins + Double(i) / rate) / AudioRecorder.window)
+            var acc = windows[w] ?? (0, 0)
+            acc.sumSquares += Double(sq / Float(max(chans, 1)))
+            acc.samples += 1
+            windows[w] = acc
         }
     }
 
-    private func flushWindow() {
-        guard windowSamples > 0 else { return }
-        levels.append(db((windowSumSquares / Double(windowSamples)).squareRoot()))
-        windowSamples = 0
-        windowSumSquares = 0
+    private func summarize(seconds: Double, matched: [String]) -> [String: Any] {
+        lock.lock(); defer { lock.unlock() }
+        let rate = format?.sampleRate ?? 48000
+        padSilence(until: Int64(seconds * rate), ignoringJitter: false)
+        file = nil
+        let count = Int((seconds / AudioRecorder.window).rounded(.up))
+        let levels: [Double] = (0..<count).map { w in
+            guard let acc = windows[w], acc.samples > 0 else { return -90 }
+            return max(db((acc.sumSquares / Double(acc.samples)).squareRoot()), -90)
+        }
+        let threshold = -50.0
+        let loud = levels.enumerated().filter { $0.element > threshold }
+        var summary: [String: Any] = [
+            "path": path,
+            "seconds": seconds,
+            "audio_seconds": round1(Double(framesHeard) / rate),
+            "peak_dbfs": round1(db(Double(peak))),
+            "silent": loud.isEmpty,
+            "window_seconds": AudioRecorder.window,
+            // One level per window from the start of recording, in dBFS, floored at -90.
+            "levels_dbfs": levels.map(round1),
+        ]
+        if !matched.isEmpty { summary["processes"] = matched }
+        if let first = loud.first, let last = loud.last {
+            summary["sound_from"] = round1(Double(first.offset) * AudioRecorder.window)
+            summary["sound_to"] = round1(Double(last.offset + 1) * AudioRecorder.window)
+            summary["loud_fraction"] = round1(Double(loud.count) / Double(max(levels.count, 1)))
+        }
+        if let writeError { summary["write_error"] = writeError.localizedDescription }
+        if framesHeard == 0 {
+            summary["note"] = "nothing played: the tap delivers audio only while something is playing. If something did play, check Porthole under System Settings › Privacy & Security › Screen & System Audio Recording"
+        }
+        return summary
     }
 
     private func check(_ status: OSStatus, _ what: String) throws {
