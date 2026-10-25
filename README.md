@@ -10,13 +10,13 @@ Let agents work on another Mac: run commands, move files, see and operate its wi
  │     desktop_* (forwarded)│                │  ├ exec  → zsh -lc, process group │
  │     remote_*  (porthole) │                │  ├ put/get (files, dirs as tar)   │
  │  └ porthole CLI          │                │  ├ shot  → screencapture          │
- └──────────────────────────┘                │  └ audio → ScreenCaptureKit       │
+ └──────────────────────────┘                │  └ audio → Core Audio process tap │
                                              └──────────────────────────────────┘
 ```
 
 - **Desktop control** comes from [Desktop Tools](https://github.com/githubnext/desktop-tools): accessibility snapshots, screenshots and input. Porthole runs its MCP server on the remote Mac and pipes it over the connection, adding `remote_exec`, `remote_push`, `remote_pull`, `remote_screenshot`, `remote_audio` and `remote_info`.
 - **Security:** the server only accepts loopback and Tailscale peers (100.64.0.0/10, fd7a:115c:a1e0::/48) unless started with `--any`, and every connection must present the 256-bit token from `~/.config/porthole/token`. Tailscale encrypts the traffic.
-- **Audio:** `remote_audio` records all output or one app's, writes a WAV on the remote Mac, and returns peak level, when sound started and stopped, and a level per 0.1 s, so an agent can tell whether a sound played.
+- **Audio:** `remote_audio` records all output or one process's through a Core Audio process tap (macOS 14.2+; it hears command-line tools, which ScreenCaptureKit misses), writes a WAV on the remote Mac, and returns peak level, when sound started and stopped, and a level per 0.1 s, so an agent can tell whether a sound played.
 
 ## Set up
 

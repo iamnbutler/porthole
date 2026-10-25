@@ -25,7 +25,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$version</string>
   <key>CFBundleVersion</key><string>$version</string>
-  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSMinimumSystemVersion</key><string>15.0</string>
   <key>LSUIElement</key><true/>
   <key>NSScreenCaptureUsageDescription</key><string>Porthole lets your agents take screenshots and record audio on this Mac.</string>
   <key>NSAudioCaptureUsageDescription</key><string>Porthole lets your agents record what this Mac plays.</string>

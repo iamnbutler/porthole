@@ -226,7 +226,7 @@ enum RemoteTools {
         ], []),
         tool("remote_audio", "Record the remote Mac's audio output for a few seconds and report whether sound played: peak level, when sound started and stopped, and a level per 0.1 s window in dBFS. Start the recording, then trigger the sound with another tool call in parallel, or record while something is already playing. The WAV stays on the remote Mac; pass pull_to to copy it here.", [
             "seconds": ["type": "number", "description": "How long to record, 0.5 to 300. Default 5."],
-            "app": ["type": "string", "description": "Only this app's audio: a bundle ID or app name. Default: all audio."],
+            "app": ["type": "string", "description": "Only this process's audio: a bundle ID, app name or executable name. It must already be running and have opened audio. Default: all audio, command-line tools included."],
             "pull_to": ["type": "string", "description": "Copy the recording to this local path."],
         ], []),
     ]

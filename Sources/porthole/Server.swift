@@ -27,13 +27,21 @@ final class Server {
         Paths.ensure(Paths.workDir)
         let listener = try Listener(port: port)
         Log.info("porthole \(portholeVersion) serving on :\(port)\(allowAny ? " (any peer)" : " (loopback and tailnet peers)")")
-        while true {
-            let sock = try listener.accept()
-            Thread.detachNewThread { [self] in
-                self.handle(sock)
-                sock.close()
+        // Accept on a background thread and keep the main run loop free for the
+        // system frameworks (Core Audio, TCC) that call back on it.
+        let acceptLoop: () -> Never = { [self] in
+            while true {
+                guard let sock = try? listener.accept() else { continue }
+                Thread.detachNewThread { [self] in
+                    self.handle(sock)
+                    sock.close()
+                }
             }
         }
+        guard Thread.isMainThread else { acceptLoop() }
+        Thread.detachNewThread { acceptLoop() }
+        RunLoop.main.run()
+        exit(0)
     }
 
     private func handle(_ sock: Socket) {

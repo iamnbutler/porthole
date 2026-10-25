@@ -154,6 +154,12 @@ func run() throws {
         }
         print(JSON.pretty(summary))
 
+    case "record":
+        // Records locally, for running under `open` so macOS can show the audio permission prompt.
+        let seconds = Double(a.flags["seconds"] ?? "") ?? 3
+        let out = a.positional.first ?? NSTemporaryDirectory() + "porthole-record.wav"
+        print(JSON.pretty(try AudioRecorder.record(seconds: seconds, app: a.flags["app"], to: out)))
+
     case "version", "--version", "-v":
         print(portholeVersion)
 
