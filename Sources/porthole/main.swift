@@ -5,9 +5,9 @@ let usage = """
 porthole \(portholeVersion): let agents work on another Mac's screen, apps and audio
 
 On the Mac that does the work:
-  porthole install [--port N] [--any]   serve this Mac (LaunchAgent), linking the CLI into ~/.local/bin
+  porthole install [--port N]           serve this Mac (LaunchAgent), linking the CLI into ~/.local/bin
   porthole uninstall                    stop serving this Mac
-  porthole serve [--port N] [--any]     serve in the foreground (--any: accept peers off the tailnet)
+  porthole serve [--port N]             serve in the foreground (loopback and tailnet only)
   porthole token                        print this Mac's token
 
 On the Mac the agent runs on:
@@ -75,10 +75,10 @@ func run() throws {
             Log.info("Screen Recording not granted; requesting it")
             _ = CGRequestScreenCaptureAccess()
         }
-        try Server(port: Int(a.flags["port"] ?? "") ?? defaultPort, token: token, allowAny: a.flags["any"] != nil).run()
+        try Server(port: Int(a.flags["port"] ?? "") ?? defaultPort, token: token).run()
 
     case "install":
-        try Install.install(port: Int(a.flags["port"] ?? "") ?? defaultPort, allowAny: a.flags["any"] != nil)
+        try Install.install(port: Int(a.flags["port"] ?? "") ?? defaultPort)
 
     case "uninstall":
         Install.uninstall()

@@ -10,7 +10,7 @@ enum Install {
     }
 
     /// Installs the LaunchAgent that serves this Mac, and links the CLI into ~/.local/bin.
-    static func install(port: Int, allowAny: Bool) throws {
+    static func install(port: Int) throws {
         let exe = executable
         if !exe.contains(".app/Contents/MacOS/") {
             print("warning: \(exe) is not inside Porthole.app; macOS ties Screen Recording to the app, so grants won't survive a rebuild")
@@ -19,8 +19,7 @@ enum Install {
         Paths.ensure(Paths.stateDir)
         linkCLI(exe)
 
-        var args = [exe, "serve", "--port", String(port)]
-        if allowAny { args.append("--any") }
+        let args = [exe, "serve", "--port", String(port)]
         let plist: [String: Any] = [
             "Label": label,
             "ProgramArguments": args,
@@ -117,7 +116,7 @@ final class Share {
     }
 
     private func handle(_ sock: Socket) {
-        guard PeerPolicy.isTrusted(sock.peer) else {
+        guard PeerPolicy.isTrusted(sock) else {
             respond(sock, 403, "only loopback and tailnet peers\n")
             return
         }

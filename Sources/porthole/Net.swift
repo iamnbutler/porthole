@@ -12,10 +12,13 @@ final class Socket {
     private var buffer = Data()
     private let writeLock = NSLock()
     private(set) var peer: String = ""
+    /// The address of ours the peer connected to; set for accepted connections.
+    private(set) var local: String = ""
 
-    init(fd: Int32, peer: String = "") {
+    init(fd: Int32, peer: String = "", local: String = "") {
         self.fd = fd
         self.peer = peer
+        self.local = local
         var on: Int32 = 1
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &on, socklen_t(MemoryLayout<Int32>.size))
@@ -189,7 +192,14 @@ final class Listener {
             let c = withUnsafeMutablePointer(to: &storage) {
                 $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.accept(fd, $0, &len) }
             }
-            if c >= 0 { return Socket(fd: c, peer: Listener.describe(&storage)) }
+            if c >= 0 {
+                var mine = sockaddr_storage()
+                var mineLen = socklen_t(MemoryLayout<sockaddr_storage>.size)
+                let rc = withUnsafeMutablePointer(to: &mine) {
+                    $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(c, $0, &mineLen) }
+                }
+                return Socket(fd: c, peer: Listener.describe(&storage), local: rc == 0 ? Listener.describe(&mine) : "?")
+            }
             if errno == EINTR || errno == ECONNABORTED { continue }
             throw NetError("accept: \(String(cString: strerror(errno)))")
         }
@@ -210,13 +220,22 @@ final class Listener {
     }
 }
 
+/// Only loopback and Tailscale connections are served. Other networks can use the
+/// CGNAT range too, so a Tailscale peer must also have reached one of this Mac's
+/// Tailscale addresses, not its LAN or public one.
 enum PeerPolicy {
-    /// Loopback, Tailscale's CGNAT range (100.64.0.0/10) and Tailscale's IPv6 ULA prefix.
-    static func isTrusted(_ addr: String) -> Bool {
-        if addr == "127.0.0.1" || addr == "::1" { return true }
+    static func isTrusted(peer: String, local: String) -> Bool {
+        (isLoopback(peer) && isLoopback(local)) || (isTailscale(peer) && isTailscale(local))
+    }
+
+    static func isTrusted(_ sock: Socket) -> Bool { isTrusted(peer: sock.peer, local: sock.local) }
+
+    static func isLoopback(_ addr: String) -> Bool { addr == "127.0.0.1" || addr == "::1" }
+
+    /// Tailscale's CGNAT range (100.64.0.0/10) and its IPv6 ULA prefix.
+    static func isTailscale(_ addr: String) -> Bool {
         if addr.lowercased().hasPrefix("fd7a:115c:a1e0:") { return true }
         let parts = addr.split(separator: ".").compactMap { Int($0) }
-        if parts.count == 4, parts[0] == 100, (64...127).contains(parts[1]) { return true }
-        return false
+        return parts.count == 4 && parts[0] == 100 && (64...127).contains(parts[1])
     }
 }

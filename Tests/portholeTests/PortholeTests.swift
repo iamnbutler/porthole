@@ -12,7 +12,7 @@ final class PortholeTests: XCTestCase {
     override class func setUp() {
         guard !started else { return }
         started = true
-        Thread.detachNewThread { try? Server(port: port, token: token, allowAny: false).run() }
+        Thread.detachNewThread { try? Server(port: port, token: token).run() }
         for _ in 0..<100 {
             if (try? Socket.connect(host: "127.0.0.1", port: port, timeout: 1)) != nil { break }
             usleep(20_000)
@@ -20,12 +20,15 @@ final class PortholeTests: XCTestCase {
     }
 
     func testPeerPolicy() {
-        XCTAssertTrue(PeerPolicy.isTrusted("127.0.0.1"))
-        XCTAssertTrue(PeerPolicy.isTrusted("::1"))
-        XCTAssertTrue(PeerPolicy.isTrusted("100.71.113.126"))
-        XCTAssertTrue(PeerPolicy.isTrusted("fd7a:115c:a1e0::1"))
-        XCTAssertFalse(PeerPolicy.isTrusted("100.128.0.1"))
-        XCTAssertFalse(PeerPolicy.isTrusted("192.168.0.146"))
+        XCTAssertTrue(PeerPolicy.isTrusted(peer: "127.0.0.1", local: "127.0.0.1"))
+        XCTAssertTrue(PeerPolicy.isTrusted(peer: "::1", local: "::1"))
+        XCTAssertTrue(PeerPolicy.isTrusted(peer: "100.119.196.79", local: "100.71.113.126"))
+        XCTAssertTrue(PeerPolicy.isTrusted(peer: "fd7a:115c:a1e0::1", local: "fd7a:115c:a1e0::2"))
+        XCTAssertFalse(PeerPolicy.isTrusted(peer: "100.128.0.1", local: "100.71.113.126"))
+        XCTAssertFalse(PeerPolicy.isTrusted(peer: "192.168.0.146", local: "192.168.0.10"))
+        // A CGNAT-range peer that reached the LAN address didn't come over Tailscale.
+        XCTAssertFalse(PeerPolicy.isTrusted(peer: "100.70.0.5", local: "192.168.0.10"))
+        XCTAssertFalse(PeerPolicy.isTrusted(peer: "100.70.0.5", local: "127.0.0.1"))
     }
 
     func testSanitize() {
