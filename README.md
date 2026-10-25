@@ -35,6 +35,7 @@ Give agents the skill: `ln -s "$PWD/skill" ~/.claude/skills/porthole`.
 ```
 porthole info  [-H host]
 porthole exec  [-H host] [--cwd dir] [--timeout s] [--detach] -- command…
+porthole run   [-H host] [--put path[=name]]… [--get path[=local]]… [--timeout s] [--keep] -- command…
 porthole push  [-H host] <local> <remote>
 porthole pull  [-H host] <remote> <local>
 porthole shot  [-H host] [--display n] [out.png]
